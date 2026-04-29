@@ -1,0 +1,30 @@
+# ── Secrets ──────────────────────────────────
+.env
+
+# ── Python ───────────────────────────────────
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+
+# ── Virtual environments ──────────────────────
+venv/
+env/
+.venv/
+
+# ── Pytest / Coverage ─────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+reports/
+
+# ── IDE ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── OS ────────────────────────────────────────
+.DS_Store
+Thumbs.db
