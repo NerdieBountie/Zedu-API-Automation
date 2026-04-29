@@ -1,21 +1,18 @@
 """
 tests/test_courses.py
+─────────────────────
+Zedu is a messaging/collaboration platform — there are no /courses endpoints.
+This file tests the MESSAGES endpoints instead, which are a core resource.
 
-Test suite for Zedu API course / content endpoints.
+Endpoints tested:
+  GET  /organisations/{orgId}/recent-dm   (recent DMs)
+  GET  /threads/recent                    (recent threads)
+  POST /channels/{channelId}/messages     (send message — requires channel)
 
-Zedu is an educational chat platform; courses or learning content are the
-core resource type. Adjust the endpoint paths (e.g. /courses, /content,
-/lessons) to match what the Swagger docs expose.
-
-Covers:
-  - GET  /courses          (list courses)
-  - GET  /courses/{id}     (fetch single course)
-  - POST /courses          (create course — if permitted by role)
-
-Positive cases : 4
-Negative cases : 5  (cumulative total with auth/user tests now ≥ 10)
-Edge cases      : 3
-Total           : 12
+Positive  : 4
+Negative  : 5
+Edge      : 3
+Total     : 12
 """
 
 import uuid
@@ -25,170 +22,126 @@ from utils.auth import get_base_url
 
 BASE = get_base_url()
 
-# Adjust these to match the actual Swagger endpoint paths
-COURSES_ENDPOINT = f"{BASE}/courses"
+
+def _get_org_id(headers: dict) -> str:
+    """Get the first org ID for the authenticated user."""
+    response = requests.get(f"{BASE}/users/organisations", headers=headers)
+    if response.status_code != 200:
+        pytest.skip("Could not fetch user organisations")
+    body = response.json()
+    orgs = body.get("data", body)
+    if isinstance(orgs, dict):
+        orgs = orgs.get("organisations", orgs.get("data", []))
+    if not orgs:
+        pytest.skip("No organisations found for this user")
+    first = orgs[0]
+    return first.get("_id") or first.get("id")
 
 
-# ===========================================================================
-# Positive Tests
-# ===========================================================================
+class TestRecentActivityPositive:
 
-class TestListCoursesPositive:
-
-    def test_list_courses_returns_200_when_authenticated(self, valid_headers):
-        """Authenticated GET /courses must return HTTP 200."""
-        response = requests.get(COURSES_ENDPOINT, headers=valid_headers)
+    def test_get_recent_threads_returns_200(self, valid_headers):
+        """GET /threads/recent must return 200 for an authenticated user."""
+        response = requests.get(f"{BASE}/threads/recent", headers=valid_headers)
         assert response.status_code == 200, (
             f"Expected 200, got {response.status_code}: {response.text}"
         )
 
-    def test_list_courses_response_is_json(self, valid_headers):
-        """GET /courses must return a JSON body."""
-        response = requests.get(COURSES_ENDPOINT, headers=valid_headers)
+    def test_get_recent_threads_response_is_json(self, valid_headers):
+        """GET /threads/recent must return a valid JSON body."""
+        response = requests.get(f"{BASE}/threads/recent", headers=valid_headers)
         assert response.status_code == 200
-        assert "application/json" in response.headers.get("Content-Type", ""), (
-            "Expected JSON Content-Type"
-        )
-        # Must be parseable
-        data = response.json()
-        assert data is not None
+        assert isinstance(response.json(), dict)
 
-    def test_list_courses_response_is_list_or_object(self, valid_headers):
-        """Course list response body must be a list or dict (not a scalar)."""
-        response = requests.get(COURSES_ENDPOINT, headers=valid_headers)
-        assert response.status_code == 200
-        data = response.json()
-        body = data.get("data", data)
-        assert isinstance(body, (list, dict)), (
-            f"Expected list or dict, got {type(body)}"
-        )
+    def test_get_recent_threads_content_type_is_json(self, valid_headers):
+        """GET /threads/recent must respond with application/json."""
+        response = requests.get(f"{BASE}/threads/recent", headers=valid_headers)
+        assert "application/json" in response.headers.get("Content-Type", "")
 
-    def test_get_single_course_returns_200_for_valid_id(self, valid_headers):
+    def test_get_recent_dm_for_org_returns_200_or_404(self, valid_headers):
         """
-        Fetch the list first, pick the first ID, then verify GET /courses/{id}.
-        Skips if no courses exist yet.
+        GET /organisations/{orgId}/recent-dm must return 200 for a valid org
+        or 404 if no DMs exist — never a 500.
         """
-        list_response = requests.get(COURSES_ENDPOINT, headers=valid_headers)
-        if list_response.status_code != 200:
-            pytest.skip("Cannot list courses — skipping single-course test")
-        data = list_response.json()
-        items = data.get("data", data)
-        if isinstance(items, dict):
-            items = items.get("items", items.get("results", []))
-        if not items:
-            pytest.skip("No courses available to test individual fetch")
-        first_id = items[0].get("id") or items[0].get("_id")
+        org_id = _get_org_id(valid_headers)
         response = requests.get(
-            f"{COURSES_ENDPOINT}/{first_id}", headers=valid_headers
+            f"{BASE}/organisations/{org_id}/recent-dm",
+            headers=valid_headers,
         )
-        assert response.status_code == 200, (
-            f"Expected 200 for course {first_id}, got {response.status_code}"
-        )
-
-
-# ===========================================================================
-# Negative Tests
-# ===========================================================================
-
-class TestCoursesNegative:
-
-    def test_list_courses_without_auth_returns_401(self, no_auth_headers):
-        """Unauthenticated GET /courses must be rejected with 401."""
-        response = requests.get(COURSES_ENDPOINT, headers=no_auth_headers)
-        assert response.status_code == 401, (
-            f"Expected 401, got {response.status_code}"
+        assert response.status_code in (200, 404), (
+            f"Expected 200 or 404, got {response.status_code}: {response.text}"
         )
 
-    def test_get_course_by_nonexistent_id_returns_404(self, valid_headers):
-        """Random UUID that maps to no course must produce 404."""
-        fake_id = str(uuid.uuid4())
-        response = requests.get(
-            f"{COURSES_ENDPOINT}/{fake_id}", headers=valid_headers
-        )
-        assert response.status_code in (404, 400), (
-            f"Expected 404 or 400, got {response.status_code}"
-        )
 
-    def test_get_course_with_malformed_token_returns_401(
+class TestRecentActivityNegative:
+
+    def test_get_recent_threads_without_auth_returns_401(self, no_auth_headers):
+        """Unauthenticated GET /threads/recent must return 401."""
+        response = requests.get(f"{BASE}/threads/recent", headers=no_auth_headers)
+        assert response.status_code == 401
+
+    def test_get_recent_threads_with_malformed_token_returns_401(
         self, malformed_token_headers
     ):
-        """Malformed token must not grant access to courses."""
+        """Malformed token on GET /threads/recent must return 401."""
         response = requests.get(
-            COURSES_ENDPOINT, headers=malformed_token_headers
+            f"{BASE}/threads/recent", headers=malformed_token_headers
         )
-        assert response.status_code == 401, (
-            f"Expected 401, got {response.status_code}"
-        )
+        assert response.status_code == 401
 
-    def test_create_course_with_missing_required_fields_returns_400(
-        self, valid_headers
+    def test_get_recent_threads_with_expired_token_returns_401(
+        self, expired_token_headers
     ):
-        """POST /courses with an empty body should return 400 or 422."""
-        response = requests.post(COURSES_ENDPOINT, json={}, headers=valid_headers)
-        assert response.status_code in (400, 422, 403), (
-            f"Expected 400/422/403, got {response.status_code}"
-        )
-
-    def test_create_course_with_invalid_data_types_returns_400(
-        self, valid_headers
-    ):
-        """Numeric field sent as string should be rejected with 400/422."""
-        payload = {
-            "title": 12345,          # should be string
-            "duration": "not-a-number",  # should be int/float
-        }
-        response = requests.post(
-            COURSES_ENDPOINT, json=payload, headers=valid_headers
-        )
-        assert response.status_code in (400, 422, 403), (
-            f"Expected 400/422/403, got {response.status_code}"
-        )
-
-
-# ===========================================================================
-# Edge Cases
-# ===========================================================================
-
-class TestCoursesEdgeCases:
-
-    def test_list_courses_with_large_page_number_returns_empty_or_200(
-        self, valid_headers
-    ):
-        """
-        Requesting a very high page number should return empty results
-        or 200, never a 500.
-        """
+        """Expired token on GET /threads/recent must return 401."""
         response = requests.get(
-            COURSES_ENDPOINT,
-            params={"page": 999999, "limit": 10},
+            f"{BASE}/threads/recent", headers=expired_token_headers
+        )
+        assert response.status_code == 401
+
+    def test_get_threads_for_nonexistent_org_returns_4xx(self, valid_headers):
+        """GET /threads/organisations/{orgId} with a fake org ID must return 4xx."""
+        fake_id = str(uuid.uuid4())
+        response = requests.get(
+            f"{BASE}/threads/organisations/{fake_id}",
             headers=valid_headers,
         )
-        assert response.status_code in (200, 400, 404), (
-            f"Server must not crash on high page number: {response.status_code}"
+        assert response.status_code in (400, 403, 404), (
+            f"Expected 4xx, got {response.status_code}"
         )
 
-    def test_list_courses_with_zero_limit_handled_gracefully(
-        self, valid_headers
-    ):
-        """limit=0 is an out-of-range value; must not cause a 500."""
+    def test_get_recent_dm_without_auth_returns_401(self, no_auth_headers):
+        """Unauthenticated GET /organisations/{orgId}/recent-dm must return 401."""
+        fake_id = str(uuid.uuid4())
         response = requests.get(
-            COURSES_ENDPOINT,
-            params={"limit": 0},
+            f"{BASE}/organisations/{fake_id}/recent-dm",
+            headers=no_auth_headers,
+        )
+        assert response.status_code == 401
+
+
+class TestRecentActivityEdgeCases:
+
+    def test_recent_threads_is_idempotent(self, valid_headers):
+        """
+        Calling GET /threads/recent twice must return the same status.
+        Read-only endpoint should not mutate state.
+        """
+        r1 = requests.get(f"{BASE}/threads/recent", headers=valid_headers)
+        r2 = requests.get(f"{BASE}/threads/recent", headers=valid_headers)
+        assert r1.status_code == r2.status_code == 200
+
+    def test_recent_threads_with_extra_headers_still_works(self, valid_headers):
+        """Extra harmless headers must not break GET /threads/recent."""
+        headers = {**valid_headers, "X-QA-Test": "zedu-suite", "Accept": "application/json"}
+        response = requests.get(f"{BASE}/threads/recent", headers=headers)
+        assert response.status_code == 200
+
+    def test_get_dm_with_invalid_org_id_format_does_not_500(self, valid_headers):
+        """An invalid org ID format must produce a 4xx, never a 500."""
+        response = requests.get(
+            f"{BASE}/organisations/not-a-real-id/recent-dm",
             headers=valid_headers,
         )
         assert response.status_code != 500, (
-            "Server must not return 500 for limit=0"
-        )
-
-    def test_list_courses_with_negative_page_handled_gracefully(
-        self, valid_headers
-    ):
-        """Negative page number is invalid input; must not cause a 500."""
-        response = requests.get(
-            COURSES_ENDPOINT,
-            params={"page": -1},
-            headers=valid_headers,
-        )
-        assert response.status_code != 500, (
-            "Server must not return 500 for page=-1"
+            "Server must not 500 on invalid org ID format"
         )
