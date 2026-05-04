@@ -1,3 +1,4 @@
+![CI Pipeline](https://github.com/NerdieBountie/Zedu-API-Automation/actions/workflows/ci.yml/badge.svg)
 # Zedu API Automation Test Suite
 
 Automated REST API test suite for the [Zedu](https://zedu.chat/) platform,
@@ -13,7 +14,27 @@ authentication, user management, organisations, and channels. All tests are
 the full suite can be re-run any number of times without state conflicts.
 
 ---
+## CI/CD Pipeline
 
+This project uses **GitHub Actions** for Continuous Integration.
+
+The pipeline triggers automatically on every push and pull request. It:
+1. Sets up Python 3.11
+2. Installs all dependencies from `requirements.txt`
+3. Runs the full test suite with `pytest --junitxml=report.xml`
+4. Uploads the JUnit XML report as a downloadable artifact
+5. Fails the build if any test fails
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `BASE_URL` | Base API URL e.g. `https://api.zedu.chat/api/v1` |
+| `TEST_EMAIL` | Valid test account email |
+| `TEST_PASSWORD` | Valid test account password |
+| `EXPIRED_TOKEN` | An expired JWT token for negative auth tests |
+
+These are stored as **GitHub Secrets** and injected automatically by the CI pipeline.
 ## Project Structure
 
 ```
